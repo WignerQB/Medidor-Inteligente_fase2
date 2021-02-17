@@ -1,6 +1,7 @@
 /*
- * Versao 2 do braço 2
+ * Versao 4 do braço 2
  * Teste do rtc externo e salvar horário e outras informaçoes pela esp32
+ * Os dados sao salvos em formato csv e separados as células por tab
    
     
    Pinagem do módulo SD na ESP32
@@ -8,11 +9,7 @@
    SCK:D18
    MOSI:D23
    MISO:D19
-*/
-// now.pde
-// Prints a snapshot of the current date and time along with the UNIX time
-// Modified by Andy Wickert from the JeeLabs / Ladyada RTC library examples
-// 5/15/11
+*/  
 
 #include <Wire.h>
 #include <DS3231.h>
@@ -22,7 +19,7 @@
 
 #define SD_CS 5
 
-String mensage;
+String mensage, mensage2;
 
 RTClib myRTC;
 
@@ -100,7 +97,7 @@ void loop () {
     Serial.print(':');
     Serial.print(now.second(), DEC);
     Serial.println();
-    mensage = "Ok" + String(now.year()) + "/" + String(now.month()) + "/" + String(now.day()) + "-" + String(now.hour()) + ":" + String(now.minute()) + ":" + String(now.second()) + "\n";
+    mensage = "Ok" + String(now.year()) + "/" + String(now.month()) + "/" + String(now.day()) + "\t" + String(now.hour()) + ":" + String(now.minute()) + ":" + String(now.second()) + "\n";
     Serial.println(mensage);
-    appendFile(SD, "/hello.txt", mensage);
+    appendFile(SD, "/helloCSV.csv", mensage);
 }
