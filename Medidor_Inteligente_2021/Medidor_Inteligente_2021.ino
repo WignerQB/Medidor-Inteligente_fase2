@@ -1,8 +1,8 @@
 /*
- * Versao 1 do braço 2
+ * Versao 2 do braço 2
  * Teste do rtc externo e salvar horário e outras informaçoes pela esp32
    
-   
+    
    Pinagem do módulo SD na ESP32
    CS: D5
    SCK:D18
@@ -16,6 +16,13 @@
 
 #include <Wire.h>
 #include <DS3231.h>
+#include "FS.h"
+#include "SD.h"
+#include "SPI.h"
+
+#define SD_CS 5
+
+String mensage;
 
 RTClib myRTC;
 
@@ -27,10 +34,52 @@ byte Hour;
 byte Minute;
 byte Second;
 
+//Funçoes ---------------------------
+
+void appendFile(fs::FS &fs, const char * path, String message){
+    Serial.printf("Appending to file: %s\n", path);
+
+    File file = fs.open(path, FILE_APPEND);
+    if(!file){
+        Serial.println("Failed to open file for appending");
+        return;
+    }
+    if(file.print(message)){
+        Serial.println("Message appended");
+    } else {
+        Serial.println("Append failed");
+    }
+    file.close();
+}
+
+
 void setup () {
     Serial.begin(57600);
     Wire.begin();
-    DateTime date = DateTime(2021, 2, 17, 10, 34, 00);
+    if(!SD.begin()){
+        Serial.println("Card Mount Failed");
+        return;
+    }
+    uint8_t cardType = SD.cardType();
+
+    if(cardType == CARD_NONE){
+        Serial.println("No SD card attached");
+        return;
+    }
+
+    Serial.print("SD Card Type: ");
+    if(cardType == CARD_MMC){
+        Serial.println("MMC");
+    } else if(cardType == CARD_SD){
+        Serial.println("SDSC");
+    } else if(cardType == CARD_SDHC){
+        Serial.println("SDHC");
+    } else {
+        Serial.println("UNKNOWN");
+    }
+
+    uint64_t cardSize = SD.cardSize() / (1024 * 1024);
+    Serial.printf("SD Card Size: %lluMB\n", cardSize);
 }
 
 void loop () {
@@ -51,10 +100,7 @@ void loop () {
     Serial.print(':');
     Serial.print(now.second(), DEC);
     Serial.println();
-    
-    Serial.print(" since midnight 1/1/1970 = ");
-    Serial.print(now.unixtime());
-    Serial.print("s = ");
-    Serial.print(now.unixtime() / 86400L);
-    Serial.println("d");
+    mensage = "Ok" + String(now.year()) + "/" + String(now.month()) + "/" + String(now.day()) + "-" + String(now.hour()) + ":" + String(now.minute()) + ":" + String(now.second()) + "\n";
+    Serial.println(mensage);
+    appendFile(SD, "/hello.txt", mensage);
 }
