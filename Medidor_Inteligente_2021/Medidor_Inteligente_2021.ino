@@ -1,5 +1,5 @@
 /*
- * Versao 1
+ * Versao 2 do braço 1
  * Estudo do código e análise de melhorias
 */
 #include <ThingSpeak.h>
