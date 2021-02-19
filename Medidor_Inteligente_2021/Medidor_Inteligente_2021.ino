@@ -1,5 +1,5 @@
 /*
- * Versao 4 do braço 2
+ * Versao 5 do braço 2
  * Teste do rtc externo e salvar horário e outras informaçoes pela esp32
  * Os dados sao salvos em formato csv e separados as células por tab
    
@@ -97,6 +97,7 @@ void loop () {
     Serial.print(':');
     Serial.print(now.second(), DEC);
     Serial.println();
+    //A separacao de células é feita pelo \t
     mensage = "Ok" + String(now.year()) + "/" + String(now.month()) + "/" + String(now.day()) + "\t" + String(now.hour()) + ":" + String(now.minute()) + ":" + String(now.second()) + "\n";
     Serial.println(mensage);
     appendFile(SD, "/helloCSV.csv", mensage);
