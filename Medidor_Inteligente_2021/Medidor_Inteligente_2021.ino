@@ -1,6 +1,8 @@
 /*
-  *Versao 5 do braço 1
+  *Versao 7 do braço 1
   *Os valores de kWh dos horários de ponta, fora de ponta e intermediários estao sendo salvos no cartao e SD e estao sendo carregados para o programa quando este se reinicia
+  *Dados salvos de 10 em 10 segundos
+  *Leitura polifásica
    
    Pinagem do módulo SD na ESP32
    CS: D5
@@ -22,16 +24,31 @@
 #define SD_CS 5
 #define ADC_BITS    10
 #define ADC_COUNTS  (1<<ADC_BITS)
-#define vCalibration 600
-#define currCalibration 4.7
-#define phase_shift 1.7
+//Fase 1
+#define pinSensorI_f1 34
+#define pinSensorV_f1 33 
+#define vCalibration_f1 600
+#define currCalibration_f1 4.7
+#define phase_shift_f1 1.7
+//Fase 2 
+#define pinSensorI_f2 35
+#define pinSensorV_f2 25
+#define vCalibration_f2 600
+#define currCalibration_f2 4.7
+#define phase_shift_f2 1.7
+//Fase 3 
+#define pinSensorI_f3 32
+#define pinSensorV_f3 26
+#define vCalibration_f3 600
+#define currCalibration_f3 4.7
+#define phase_shift_f3 1.7
 
 //Declaracao de variáveis String --------------------------------------------
-String RTCdata, Dados_de_medicao, Dados_SD, LabelSD, m;
+String RTCdata, Dados_de_medicao, Dados_SD, LabelSD, Mensagem_Print;
 
 //Declaracao de variáveis de bibliotecas-------------------------------------
 RTClib myRTC;
-EnergyMonitor emon;
+EnergyMonitor emon_f1, emon_f2, emon_f3;
 
 //Declaracao de variáveis byte-----------------------------------------------
 byte Year;
@@ -43,12 +60,15 @@ byte Minute;
 byte Second;
 
 //Declaracao de variáveis unsigned long----------------------------------------
-unsigned long timerDelay = 20000, timerDelay2 = 2500, timerDelay3 = 5000;
-unsigned long lastTime = 0, lastTime2 = 0, lastTime3 = 0;
+unsigned long timerDelay1 = 5000, timerDelay2 = 10000;
+unsigned long lastTime1 = 0, lastTime2 = 0;
 
 //Declaracao de variáveis float-------------------------------------------------
-float kWh_FP = 0, kWh_I = 0, kWh_P = 0, TensaoAlimentacao, FatorPotencia, PotenciaAparente, PotenciaReal;
-float ConsumoEsperado = 10.00, MetaDiaria, ConsumoDiario = 0, ConsumoTotal = 0, ValorDokWh;//Todos valores simulados
+float kWh_FP = 0, kWh_I = 0, kWh_P = 0;
+float TensaoAlimentacao_f1 = 0, FatorPotencia_f1 = 0, PotenciaAparente_f1 = 0, PotenciaReal_f1 = 0;
+float TensaoAlimentacao_f2 = 0, FatorPotencia_f2 = 0, PotenciaAparente_f2 = 0, PotenciaReal_f2 = 0;
+float TensaoAlimentacao_f3 = 0, FatorPotencia_f3 = 0, PotenciaAparente_f3 = 0, PotenciaReal_f3 = 0;
+//float ConsumoEsperado = 10.00, MetaDiaria, ConsumoDiario = 0, ConsumoTotal = 0, ValorDokWh;//Todos valores simulados
 /*
  * kWh_FP: kWh referente ao consumido no horário Fora de Ponta
  * kWh_I: kWh referente ao consumido no horário Intermediário
@@ -56,7 +76,7 @@ float ConsumoEsperado = 10.00, MetaDiaria, ConsumoDiario = 0, ConsumoTotal = 0, 
 */
 
 //Declaracao de variáveis double------------------------------------------------
-double Irms;
+double Irms_f1 = 0, Irms_f2 = 0, Irms_f3 = 0;
 
 //Declaracao de variáveis int---------------------------------------------------
 int ContadorDeDias = 30, DiaAtual, flag_setup = 0;
@@ -66,7 +86,7 @@ int blue = 33, green = 32, LedDeErro = 2, ErroNoPlanejamento = 0;
    blue -> indica se conseguiu gravar no SD card
 */
 int Vetor_Leitura_kWh[500], Agrupar_kWh = 0;
-int i = 0 , j, caseTR = 0;
+int i = 0 , j, caseTR = 0, NumFases, sair = 0, LerSerial = -1;
 
 enum ENUM {
   f_medicao,
@@ -213,7 +233,9 @@ void SD_config() {
   // Create a file on the SD card and write labels
   File file = SD.open("/ICDataLogger.csv");
   if (!file) {
-    LabelSD = "Data \tHorário \tTensao Alimentacao \tIrms \tPotencia Real \tPotencia Aparente \tFator de Potencia \tkWh Horário Fora de Ponta \tkWh Horário Intermediário \tHorário de Ponta\n" ;
+    LabelSD = "Data \tHorário \tTensao Alimentacao_f1 \tIrms_f1 \tPotencia Real_f1 \tPotencia Aparente_f1 \tFator de Potencia_f1 \t" ;
+    LabelSD = LabelSD + "Tensao Alimentacao_f2 \tIrms_f2 \tPotencia Real_f2 \tPotencia Aparente_f2 \tFator de Potencia_f2 \t" ;
+    LabelSD = LabelSD + "Tensao Alimentacao_f3 \tIrms_f3 \tPotencia Real_f3 \tPotencia Aparente_f3 \tFator de Potencia_f3 \tkWh Horário Fora de Ponta \tkWh Horário Intermediário \tHorário de Ponta\n" ;
     Serial.println("File doens't exist");
     Serial.println("Creating file...");
     writeFile(SD, "/ICDataLogger.csv", LabelSD);
@@ -268,8 +290,32 @@ void setup () {
   Wire.begin();
   adc1_config_channel_atten(ADC1_CHANNEL_6, ADC_ATTEN_DB_11);
   analogReadResolution(10);
-  emon.voltage(35, vCalibration, phase_shift); // Voltage: input pin, calibration, phase_shift
-  emon.current(34, currCalibration); // Current: input pin, calibration.
+  Serial.println("\n\nDigite o número de fases(1,2 ou 3) que o medidor inteligente terá de ler!");
+  while(sair == 0){
+    if(Serial.available()>1){
+      LerSerial = Serial.read();
+    }
+    if(LerSerial>=49 && LerSerial <=51){
+      NumFases = (int)LerSerial - 48;
+      sair = 1;
+    }
+  }
+
+  emon_f1.voltage(pinSensorV_f1, vCalibration_f1, phase_shift_f1); // Voltage: input pin f1, calibration f1, phase_shift_f1
+  emon_f1.current(pinSensorI_f1, currCalibration_f1); // Current: input pin f1, calibration f1.
+  
+  if(NumFases == 2){
+    emon_f2.voltage(pinSensorV_f2, vCalibration_f2, phase_shift_f2); // Voltage: input pin f2, calibration f2, phase_shift_f2
+    emon_f2.current(pinSensorI_f2, currCalibration_f2); // Current: input pin f2, calibration f2.
+  }
+  else{
+    emon_f2.voltage(pinSensorV_f2, vCalibration_f2, phase_shift_f2); // Voltage: input pin f2, calibration f2, phase_shift_f2
+    emon_f2.current(pinSensorI_f2, currCalibration_f2); // Current: input pin f2, calibration f2.
+  
+    emon_f3.voltage(pinSensorV_f3, vCalibration_f3, phase_shift_f3); // Voltage: input pin f3, calibration f3, phase_shift_f3
+    emon_f3.current(pinSensorI_f3, currCalibration_f3); // Current: input pin f3, calibration f3.
+  }
+  
   SD_config();
 }
 
@@ -280,13 +326,40 @@ void loop () {
       //Nesse estado também é realizado a verificação de possíveis erros dado a imprecisão do sensor de corrente.
       //Serial.println("Estado f_medicao");
       
-      emon.calcVI(60, 900);
-      TensaoAlimentacao   = emon.Vrms;
-      Irms = emon.calcIrms(1480);  // Calculate Irms only
-      PotenciaReal = emon.realPower;
-      PotenciaAparente = emon.apparentPower;
-      FatorPotencia = emon.powerFactor;
-      if (PotenciaReal >= 0){
+      emon_f1.calcVI(60, 900);
+      if(NumFases == 2 || NumFases == 3){
+        emon_f2.calcVI(60, 900);
+      }
+      if(NumFases == 3){
+        emon_f3.calcVI(60, 900);
+      }
+      
+      //Fase 1
+      TensaoAlimentacao_f1   = emon_f1.Vrms;
+      Irms_f1 = emon_f1.calcIrms(1480);  // Calculate Irms_f1 only
+      PotenciaReal_f1 = emon_f1.realPower;
+      PotenciaAparente_f1 = emon_f1.apparentPower;
+      FatorPotencia_f1 = emon_f1.powerFactor;
+      
+      if(NumFases == 2 || NumFases == 3){
+        //Fase 2
+        TensaoAlimentacao_f2   = emon_f2.Vrms;
+        Irms_f2 = emon_f2.calcIrms(1480);  // Calculate Irms_f2 only
+        PotenciaReal_f2 = emon_f2.realPower;
+        PotenciaAparente_f2 = emon_f2.apparentPower;
+        FatorPotencia_f2 = emon_f2.powerFactor;
+      }
+      if(NumFases == 3){
+        //Fase 3
+        TensaoAlimentacao_f3   = emon_f3.Vrms;
+        Irms_f3 = emon_f3.calcIrms(1480);  // Calculate Irms_f3 only
+        PotenciaReal_f3 = emon_f3.realPower;
+        PotenciaAparente_f3 = emon_f3.apparentPower;
+        FatorPotencia_f3 = emon_f3.powerFactor;
+      }
+      
+      
+      if (PotenciaReal_f1 >= 0){
         estado = incrementar;
       }
       else {
@@ -298,53 +371,54 @@ void loop () {
       break;
 
     case incrementar://Nesse estado é feito o cálculo do consumo em R$ e em kWh e feito o backup dos dados
-      //Serial.println("\n\n\n" + String(millis() - lastTime3) + "\n\n\n");
-      if ((millis() - lastTime3) >= timerDelay3) {//Horário Intermediário
+      //Serial.println("\n\n\n" + String(millis() - lastTime2) + "\n\n\n");
+      if ((millis() - lastTime2) >= timerDelay2) {//Horário Intermediário
         if((int(now.hour()) == 18)||(int(now.hour()) == 22)){
-          kWh_I = kWh_I + (PotenciaReal / 720) / 1000;
-          Dados_de_medicao = String(TensaoAlimentacao) + "\t"  + String(Irms) + "\t"  + String(PotenciaReal) + "\t"  + String(PotenciaAparente) + "\t"  + String(FatorPotencia) + "\t" + String(kWh_FP* 1000000) + "\t" + String(kWh_I* 1000000) + "\t" + String(kWh_P* 1000000);
+          kWh_I = kWh_I + ((PotenciaReal_f1 + PotenciaReal_f2 + PotenciaReal_f3) / 360) / 1000;
+          Dados_de_medicao = String(TensaoAlimentacao_f1) + "\t"  + String(Irms_f1) + "\t"  + String(PotenciaReal_f1) + "\t"  + String(PotenciaAparente_f1) + "\t"  + String(FatorPotencia_f1) + "\t";
+          Dados_de_medicao = Dados_de_medicao + String(TensaoAlimentacao_f2) + "\t"  + String(Irms_f2) + "\t"  + String(PotenciaReal_f2) + "\t"  + String(PotenciaAparente_f2) + "\t"  + String(FatorPotencia_f2) + "\t";
+          Dados_de_medicao = Dados_de_medicao + String(TensaoAlimentacao_f3) + "\t"  + String(Irms_f3) + "\t"  + String(PotenciaReal_f3) + "\t"  + String(PotenciaAparente_f3) + "\t"  + String(FatorPotencia_f3) + "\t" + String(kWh_FP* 1000000) + "\t" + String(kWh_I* 1000000) + "\t" + String(kWh_P* 1000000);
           Dados_SD = RTCdata + "\t" + Dados_de_medicao + "\n";
           appendFile(SD, "/ICDataLogger.csv", Dados_SD);
           writeFile(SD, "/kWh_I.txt", String((int)(kWh_I*1000000)));
         }
         else if((int(now.hour()) >= 19)&&(int(now.hour()) <= 21)){//Horário de Ponta
-          kWh_P = kWh_P + (PotenciaReal / 720) / 1000;  
-          Dados_de_medicao = String(TensaoAlimentacao) + "\t"  + String(Irms) + "\t"  + String(PotenciaReal) + "\t"  + String(PotenciaAparente) + "\t"  + String(FatorPotencia) + "\t" + String(kWh_FP* 1000000) + "\t" + String(kWh_I* 1000000) + "\t" + String(kWh_P* 1000000);
+          kWh_P = kWh_P + ((PotenciaReal_f1 + PotenciaReal_f2 + PotenciaReal_f3) / 360) / 1000;  
+          Dados_de_medicao = String(TensaoAlimentacao_f1) + "\t"  + String(Irms_f1) + "\t"  + String(PotenciaReal_f1) + "\t"  + String(PotenciaAparente_f1) + "\t"  + String(FatorPotencia_f1) + "\t";
+          Dados_de_medicao = Dados_de_medicao + String(TensaoAlimentacao_f2) + "\t"  + String(Irms_f2) + "\t"  + String(PotenciaReal_f2) + "\t"  + String(PotenciaAparente_f2) + "\t"  + String(FatorPotencia_f2) + "\t";
+          Dados_de_medicao = Dados_de_medicao + String(TensaoAlimentacao_f3) + "\t"  + String(Irms_f3) + "\t"  + String(PotenciaReal_f3) + "\t"  + String(PotenciaAparente_f3) + "\t"  + String(FatorPotencia_f3) + "\t" + String(kWh_FP* 1000000) + "\t" + String(kWh_I* 1000000) + "\t" + String(kWh_P* 1000000);
           Dados_SD = RTCdata + "\t" + Dados_de_medicao + "\n";
           appendFile(SD, "/ICDataLogger.csv", Dados_SD);
           writeFile(SD, "/kWh_P.txt", String((int)(kWh_P*1000000)));
         }
         else{
-          kWh_FP = kWh_FP + (PotenciaReal / 720) / 1000;  
-          Dados_de_medicao = String(TensaoAlimentacao) + "\t"  + String(Irms) + "\t"  + String(PotenciaReal) + "\t"  + String(PotenciaAparente) + "\t"  + String(FatorPotencia) + "\t" + String(kWh_FP* 1000000) + "\t" + String(kWh_I* 1000000) + "\t" + String(kWh_P* 1000000);
+          kWh_FP = kWh_FP + ((PotenciaReal_f1 + PotenciaReal_f2 + PotenciaReal_f3) / 360) / 1000;  
+          Dados_de_medicao = String(TensaoAlimentacao_f1) + "\t"  + String(Irms_f1) + "\t"  + String(PotenciaReal_f1) + "\t"  + String(PotenciaAparente_f1) + "\t"  + String(FatorPotencia_f1) + "\t";
+          Dados_de_medicao = Dados_de_medicao + String(TensaoAlimentacao_f2) + "\t"  + String(Irms_f2) + "\t"  + String(PotenciaReal_f2) + "\t"  + String(PotenciaAparente_f2) + "\t"  + String(FatorPotencia_f2) + "\t";
+          Dados_de_medicao = Dados_de_medicao + String(TensaoAlimentacao_f3) + "\t"  + String(Irms_f3) + "\t"  + String(PotenciaReal_f3) + "\t"  + String(PotenciaAparente_f3) + "\t"  + String(FatorPotencia_f3) + "\t" + String(kWh_FP* 1000000) + "\t" + String(kWh_I* 1000000) + "\t" + String(kWh_P* 1000000);
           Dados_SD = RTCdata + "\t" + Dados_de_medicao + "\n";
           appendFile(SD, "/ICDataLogger.csv", Dados_SD);
           writeFile(SD, "/kWh_FP.txt", String((int)(kWh_FP*1000000)));
         }
-        lastTime3 = millis();
+        lastTime2 = millis();
       }
       estado = printar;
       break;
 
     case printar://Printa as informações lidas e calculadas
-      if ((millis() - lastTime2) >= timerDelay2)
+      if ((millis() - lastTime1) >= timerDelay1)
       {
         RTCdata = String(now.year()) + "/" + String(now.month()) + "/" + String(now.day()) + "\t" + String(now.hour()) + ":" + String(now.minute()) + ":" + String(now.second());
         Serial.println(RTCdata);
-        Serial.print(" Vrms: ");
-        Serial.print(TensaoAlimentacao);
-        Serial.print(" V     ");
-        Serial.print("Irms: ");
-        Serial.print(Irms);
-        Serial.print(" A     ");
-        Serial.print("Potência Real: ");
-        Serial.print(PotenciaReal);
-        Serial.print(" W     ");
-        Serial.print("Potência Aparente: ");
-        Serial.print(PotenciaAparente);
-        Serial.print(" VA");
-        Serial.print("Fator de Potência: ");
-        Serial.println(FatorPotencia);
+        //Fase1
+        Serial.print(" Vrms1: " + String(TensaoAlimentacao_f1) + " V     Irms_f1: " + String(Irms_f1) + " A     Potência Real1: " + String(PotenciaReal_f1));
+        Serial.println(" W     Potência Aparente1: " + String(PotenciaAparente_f1) + " VA    Fator de Potência1: " + String(FatorPotencia_f1));
+        //Fase2
+        Serial.print(" Vrms2: " + String(TensaoAlimentacao_f2) + " V     Irms_f2: " + String(Irms_f2) + " A     Potência Real2: " + String(PotenciaReal_f2));
+        Serial.println(" W     Potência Aparente2: " + String(PotenciaAparente_f2) + " VA    Fator de Potência2: " + String(FatorPotencia_f2));
+        //Fase3
+        Serial.print(" Vrms3: " + String(TensaoAlimentacao_f3) + " V     Irms_f3: " + String(Irms_f3) + " A     Potência Real3: " + String(PotenciaReal_f3)); 
+        Serial.println(" W     Potência Aparente3: " + String(PotenciaAparente_f3) + " VA   Fator de Potência3: " + String(FatorPotencia_f3));
         Serial.print("kWh*1000000: ");
         if((int(now.hour()) == 18)||(int(now.hour()) == 22)){
           Serial.println(String(kWh_I * 1000000));
@@ -356,7 +430,7 @@ void loop () {
           Serial.println(String(kWh_FP * 1000000));
         }
         estado = f_medicao;
-        lastTime2 = millis();
+        lastTime1 = millis();
       }
       break;
 
