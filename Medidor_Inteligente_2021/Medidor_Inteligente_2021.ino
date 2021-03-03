@@ -1,6 +1,7 @@
 /*
-   Versao 5 do braço 1
-
+  *Versao 5 do braço 1
+  *Os valores de kWh dos horários de ponta, fora de ponta e intermediários estao sendo salvos no cartao e SD e estao sendo carregados para o programa quando este se reinicia
+   
    Pinagem do módulo SD na ESP32
    CS: D5
    SCK:D18
